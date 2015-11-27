@@ -1,2 +1,2 @@
-# Overlap2D-Importer
-Import projects from Overlap2D into Godot
+# Overlap2D Importer
+Plugin for importing projects from Overlap2D into Godot
