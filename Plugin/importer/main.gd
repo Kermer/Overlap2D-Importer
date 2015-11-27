@@ -234,7 +234,7 @@ func import_scene_sprites( scene, sdata, owner ): # TO DO2 add textures
 		# z
 		#sprite.set_z_as_relative(false)
 		if idata.has("zIndex"):
-			sprite.set_z(-idata.zIndex)
+			sprite.set_z(idata.zIndex)
 		# tags / groups
 		if idata.has("tags"):
 			for tag in idata.tags:
