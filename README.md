@@ -5,12 +5,10 @@ Currently only allows to import images
 ( no composites, lights, particles, polygons )
 
 Usage:
+
 1. Drop folder with plugin.cfg into your Godot plugins folder
-
 2. Enable at editor settings
-
 3. Press 'Importer' button on top of your 2D scene editor
-
 4. Navigate to 'project.dt' file
 
 This is really early version of importer, so it should contain some bugs.
