@@ -6,8 +6,8 @@ Currently only allows to import images
 
 Usage:
 
-1. Drop folder with plugin.cfg into your Godot plugins folder
-2. Enable at editor settings
+1. Drop 'Plugin' folder into your Godot plugins folder
+2. Enable 'Overlap2D Importer' at editor settings
 3. Press 'Importer' button on top of your 2D scene editor
 4. Navigate to 'project.dt' file
 
