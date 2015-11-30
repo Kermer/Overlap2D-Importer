@@ -1,53 +1,98 @@
 tool
-extends FileDialog
+extends Node
 
 var TO_PATH = "res://overlap_import"
-var FROM_PATH
 var EXT = ".dt"
 var DATA = {}
 var COMPOSITES = {}
 var RESOLUTION = Vector2(800,600)
-var SCENES = []
 var ATLAS
-var ROOT
+
+var drag = false
 
 func reset():
 	TO_PATH = "res://overlap_import"
-	FROM_PATH = ""
 	EXT = ".dt"
 	DATA = {}
 	COMPOSITES = {}
 	RESOLUTION = Vector2(800,600)
-	SCENES = []
 
 func _enter_tree():
-	ROOT = get_tree().get_edited_scene_root()
+#	self.hide()
 	ATLAS = preload("atlas.gd").new()
 	print("-OI- Overlap2D Projects Importer")
-	print("-OI- User path check: ",Globals.globalize_path("user://"))
-	print("-OI- Res path check: ",Globals.globalize_path("res://"))
-	print("-OI- Script path: ",get_script().get_path())
-	set_mode(FileDialog.MODE_OPEN_FILE)
-	set_access(FileDialog.ACCESS_FILESYSTEM)
-	add_filter("*"+EXT)
-	#set_current_dir(custom_path)
-	if !is_connected("file_selected",self,"_file_selected"):
-		connect("file_selected",self,"_file_selected")
-	set_pos(Vector2(100,100))
-	set_size(Vector2(500,450))
-	set_exclusive(true)
+#	print("-OI- User path check: ",Globals.globalize_path("user://"))
+#	print("-OI- Res path check: ",Globals.globalize_path("res://"))
+#	print("-OI- Script path: ",get_script().get_path())
+	
+	var fd = get_node("FileDialog")
+	fd.set_mode(FileDialog.MODE_OPEN_FILE)
+	fd.set_access(FileDialog.ACCESS_FILESYSTEM)
+	fd.add_filter("*.dt")
+	fd.connect("file_selected",self,"_file_selected")
+	
+	get_node("BSelect").connect("pressed",get_node("FileDialog"),"popup")
+	get_node("Path").connect("text_changed",self,"_check_file")
+#	get_node("BImport").connect("pressed",get_parent(),"save_config")
+	get_node("BImport").connect("pressed",self,"_import_project")
+	get_node("BClose").connect("pressed",self,"hide")
+	
+	set_process_input(true)
 
-func _file_selected( path ): # TO DO4
-	FROM_PATH = path.get_base_dir()
+func _input(ev):
+	if ev.type == InputEvent.MOUSE_BUTTON and ev.button_index == 1 and !ev.is_echo():
+		if ev.is_pressed():
+			var mpos = ev.pos; var pos = get_pos(); var size = get_size()
+			if mpos.x > pos.x and mpos.x < pos.x+size.x and mpos.y > pos.y and mpos.y < pos.y+size.y:
+				drag = true
+		else:
+			drag = false
+	elif ev.type == InputEvent.MOUSE_MOTION and drag == true:
+		set_pos(get_pos()+ev.relative_pos)
+
+func _file_selected(path):
+	get_node("Path").set_text(path)
+	get_node("Path").set_cursor_pos(path.length())
+	_check_file(path)
+
+func _check_file(path):
+	get_node("FileDialog").call_deferred("set_current_path",path)
+	var f = File.new()
+	var err = f.open(path,File.READ)
+	f.close()
+	get_node("BImport").set_disabled(true)
+	if err != OK:
+		return
 	if check_project( path ) != OK:
-		epopup("Failed to import a project. Check debug window for a clue.")
+		dprint("Invalid project file.")
+		return
+	var sc_list = import_scenes_list()
+	if sc_list.size() == 0:
+		dprint("There's no scenes defined in the project!")
 		return
 	
-	if DATA.empty():
-		epopup("DATA is empty?! (at _file_selected())")
-		return
+	get_node("BImport").set_disabled(false)
+
+func _import_project():
+	var err_save = get_parent().save_config()
+	if err_save == OK:
+		dprint("Config saved")
+	else:
+		dprint(str("Failed to save config. Error code: ",err_save))
+	var path = get_node("Path").get_text()
+	path = path.get_base_dir()
 	
-	import_project()# test
+	RESOLUTION.x = DATA.originalResolution.width
+	RESOLUTION.y = DATA.originalResolution.height
+	if copy_atlas(path,TO_PATH) != OK:
+		epopup("Failed to copy image packs!")
+		return FAILED
+	dprint("Importing images data from atlas...")
+	ATLAS.import(TO_PATH)
+	
+	var scene = get_node("Scene")
+	scene = scene.get_item_text( scene.get_selected() )
+	import_scene(path,scene)
 
 func check_project( path, check_all=true ): # TO DO5
 	var f = File.new()
@@ -57,6 +102,7 @@ func check_project( path, check_all=true ): # TO DO5
 		return FAILED
 	var data = {}
 	data.parse_json(f.get_as_text())
+#	var pos = path.find_last("/")
 	var project_path = path.get_base_dir()
 	var file_name = path.get_file()
 	dprint("")
@@ -111,27 +157,22 @@ func import_scenes_list(): # TO DO5 add debug
 	for scene in DATA.scenes:
 		list.append(scene.sceneName)
 	list.sort()
-	SCENES = list
+	var sc_select = get_node("Scene")
+	sc_select.clear()
+	for scene in list:
+		sc_select.add_item(scene)
+		sc_select.set_item_text(sc_select.get_item_count()-1,scene)
 	dprint(str("Scenes list: ",list))
+	return list
 
 func data_has_scene(scene_name):
+	if !DATA.has("scenes"):
+		dprint("DATA doesn't contain main key \"scenes\"!")
+		return false
 	for scene in DATA.scenes:
 		if scene.sceneName == scene_name:
 			return true
 	return false
-
-func import_project(): # TO DO3 add debug
-	RESOLUTION.x = DATA.originalResolution.width
-	RESOLUTION.y = DATA.originalResolution.height
-	if copy_atlas(FROM_PATH,TO_PATH) != OK:
-		epopup("Failed to copy image packs!")
-		return FAILED
-	dprint("Importing images data from atlas...")
-	ATLAS.import(TO_PATH)
-	dprint("Importing scenes list...")
-	import_scenes_list()
-	import_scene(SCENES[0]) # TO DO add choice option
-	return OK
 
 func copy_atlas(from, to):
 	dprint(str("Copying image packs \nfrom: \"",from+"/orig","\"\nto: \"",to,"\""))
@@ -147,12 +188,8 @@ func copy_atlas(from, to):
 	
 	
 
-func import_scene( scene_name ): # TO DO2
+func import_scene( path, scene_name ): # TO DO2
 	dprint(str("Importing scene \'",scene_name,"\'..."))
-	if !DATA.has("scenes"):
-		dprint("FAILED. DATA doesn't contain main key \"scenes\"",2)
-		# This error SHOULD never popup
-		return FAILED
 	if !data_has_scene(scene_name):
 		dprint(str("FAILED. There's no \'",scene_name,"\' scene!"),2)
 		# scene with that name doesn't exist
@@ -160,7 +197,7 @@ func import_scene( scene_name ): # TO DO2
 	
 # Open scene file
 	var f = File.new()
-	var sfile_path = FROM_PATH+"/scenes/"+scene_name+EXT
+	var sfile_path = path+"/scenes/"+scene_name+EXT
 	var err = f.open(sfile_path,File.READ)
 	if err != OK:
 		epopup(str("Failed to open \"",sfile_path,"\"\n Error code: ",err," (at import_scene())"))
@@ -178,18 +215,44 @@ func import_scene( scene_name ): # TO DO2
 	root.add_child(scene) # TO DO3
 	scene.set_owner(root)
 	dprint("Created root (scene) node",1)
-	if import_scene_sprites( scene, sdata, root ) != OK:
-		epopup("Failed to load a scene's sprites. Check debug window for a clue.")
+	var invert_x = get_node("InvertX").is_pressed()
+	var invert_y = get_node("InvertY").is_pressed()
+	if import_layers( scene, sdata ) != OK:
+		epopup("Failed to load layers")
+		return FAILED
+	if import_scene_sprites( scene, sdata, invert_x, invert_y ) != OK:
+		epopup("Failed to load scene's sprites. Check debug window for a clue.")
+		return FAILED
+	if import_scene_composites( scene, sdata, invert_x, invert_y ) != OK:
+		epopup("Failed to load scene's composites. Check debug window for a clue.")
 		return FAILED
 	
 	dprint("Importing scene done.")
 	f.close()
+	call("hide")
 	return OK
 
 func check_scene_data( sdata ): # TO DO3 add debugging
 	return OK
 
-func import_scene_sprites( scene, sdata, owner ): # TO DO2 add textures
+func import_layers( scene, sdata ):
+	dprint("Importing layers...",1)
+	if !sdata.composite.has("layers") or sdata.composite.layers.size() == 0:
+		return FAILED
+	var owner = get_tree().get_edited_scene_root()
+	for i in range(sdata.composite.layers.size()):
+		var ldata = sdata.composite.layers[i]
+		var layer = Node2D.new()
+		layer.set_name( ldata.layerName )
+		if ldata.isVisible == false:
+			layer.hide()
+		layer.set_z(1000*i)
+		scene.add_child(layer)
+		layer.set_owner(owner)
+	dprint("Done.",2)
+	return OK
+
+func import_scene_sprites( scene, sdata, invert_x, invert_y ): # TO DO2 add textures
 	dprint("Importing sprites...",1)
 	if sdata.empty():
 		dprint("FAILED. sdata is empty?!",3)
@@ -198,8 +261,9 @@ func import_scene_sprites( scene, sdata, owner ): # TO DO2 add textures
 		dprint("FAILED. sdata doesn't contain \"composite\" key",3)
 		return FAILED
 	if !sdata.composite.has("sImages"):
-		dprint("FAILED. sdata doesn't contain \"sImages\" key",3)
-		return FAILED
+		dprint("No images data found.",2)
+		dprint("Importing sprites done.",1)
+		return OK
 	dprint(str("Sprites count: ",sdata.composite.sImages.size()),1)
 	
 	for idata in sdata.composite.sImages:
@@ -209,58 +273,119 @@ func import_scene_sprites( scene, sdata, owner ): # TO DO2 add textures
 		var uid = idata.uniqueId
 		var iname = idata.imageName
 		sprite.set_name(str(uid,"_",iname))
-		# pos
-		var pos = Vector2(0,RESOLUTION.y)
-		if idata.has("x"):
-			pos.x = idata.x
-		if idata.has("y"):
-			pos.y = RESOLUTION.y - idata.y
-		sprite.set_pos(pos)
-		# origin?
-		var offset = Vector2()
-		if idata.has("originX"):
-			offset.x = idata.originX
-		if idata.has("originY"):
-			offset.y = -idata.originY
-		sprite.set_offset(offset)
-		# scale
-		var scale = Vector2(1,1)
-		if idata.has("scaleX"):
-			scale.x = idata.scaleX
-		if idata.has("scaleY"):
-			scale.y = idata.scaleY
-		scale *= 0.8
-		sprite.set_scale(scale)
-		# z
-		#sprite.set_z_as_relative(false)
-		if idata.has("zIndex"):
-			sprite.set_z(idata.zIndex)
-		# tags / groups
-		if idata.has("tags"):
-			for tag in idata.tags:
-				sprite.add_to_group(tag)
-		# add texture
-		var tex_data = ATLAS.get_sprite_data(iname)
-		var tex = tex_data.pack
-		sprite.set_texture(tex)
-		sprite.set_region(true)
-		sprite.set_region_rect(tex_data.region)
 		
-		# layers
-		var lay = idata.layerName
-		if !scene.has_node(lay):
-			var new_lay = Node2D.new()
-			new_lay.set_name(lay)
-			scene.add_child(new_lay)
-			new_lay.set_owner(owner)
-		# add to correct layer
-		lay = scene.get_node(lay)
-		lay.add_child(sprite)
-		sprite.set_owner(owner)
+		load_item( sprite, idata, invert_x, invert_y )
+		var layer = idata.layerName
+		add_item( scene, sprite, layer )
+
 		dprint(str("Created \'",iname,"\' (uid:",uid,")"),2)
 	
 	dprint("Importing sprites done.",1)
 	return OK
+
+func import_scene_composites( scene, sdata, invert_x, invert_y ):
+	dprint("Importing composites...",1)
+	sdata = sdata.composite
+	if !sdata.has("sComposites") or sdata.sComposites.size() == 0:
+		dprint("No composites found.",2)
+		dprint("Importing composites done.",1)
+		return OK
+	var owner = get_tree().get_edited_scene_root()
+	for cdata in sdata.sComposites:
+		var composite = Node2D.new()
+		var uid = cdata.uniqueId
+		var name = ""
+		if cdata.has("itemIdentifier"):
+			name = cdata.itemIdentifier
+		elif cdata.has("itemName"):
+			name = cdata.itemName
+		else:
+			name = "NAME_NOT_FOUND"
+		composite.set_name(str(uid,"_",name))
+		load_item(composite, cdata, invert_x, invert_y,true )
+		var layer = cdata.layerName
+		add_item( scene, composite, layer )
+		
+		for idata in cdata.composite.sImages:
+			var sprite = Sprite.new()
+			sprite.set_name(str(idata.uniqueId,"_",idata.imageName))
+			load_item(sprite,idata,invert_x,invert_y,false)
+			composite.add_child(sprite)
+			sprite.set_owner(owner)
+		
+		dprint(str("Created \'",name,"\' (uid:",uid,")"),2)
+	
+	dprint("Importing composites done.",1)
+	return OK
+
+func add_item( scene, item, layer ):
+	var owner = get_tree().get_edited_scene_root()
+	layer = scene.get_node(layer)
+	if layer == null:
+		dprint(str("Error: non-existing layer \"",layer,"\""))
+	layer.add_child(item)
+	item.set_owner(owner)
+
+func load_item( item, idata, invert_x, invert_y, relative=false ):
+	# pos
+	var pos = Vector2(0,RESOLUTION.y)
+	if idata.has("x"):
+		if invert_x == false:
+			pos.x = idata.x
+		else:
+			pos.x = -idata.x
+			if !relative:
+				pos.x += RESOLUTION.x
+	if idata.has("y"):
+		if invert_y == false:
+			pos.y = idata.y
+		else:
+			pos.y = -idata.y
+			if !relative:
+				pos.y += RESOLUTION.y
+	item.set_pos(pos)
+	# scale
+	var scale = Vector2(1,1)
+	if idata.has("scaleX"):
+		scale.x = idata.scaleX
+	if idata.has("scaleY"):
+		scale.y = idata.scaleY
+	#scale *= 0.8
+	item.set_scale(scale)
+	# z
+	#item.set_z_as_relative(false)
+	if idata.has("zIndex"):
+		item.set_z(idata.zIndex)
+	# tags / groups
+	if idata.has("tags"):
+		for tag in idata.tags:
+			item.add_to_group(tag)
+	# Sprite
+	if item extends Sprite:
+		# origin?
+		var offset = Vector2()
+		if idata.has("originX"):
+			if invert_x == false:
+				offset.x = idata.originX
+			else:
+				offset.x = -idata.originX
+		if idata.has("originY"):
+			if invert_y == false:
+				offset.y = idata.originY
+			else:
+				offset.y = -idata.originY
+		item.set_offset(offset)
+		# texture
+		var iname = item.get_name()
+		var c_pos = iname.find("_")+1
+		iname = iname.substr(c_pos,iname.length()-c_pos+1)
+		var tex_data = ATLAS.get_sprite_data(iname)
+		var tex = tex_data.pack
+		item.set_texture(tex)
+		item.set_region(true)
+		item.set_region_rect(tex_data.region)
+	
+	return item
 
 func epopup( s ): # TO DO6
 	s = str(s)
